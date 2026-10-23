@@ -66,10 +66,15 @@
             .print-only { display: block !important; }
             body { background: white !important; font-size: 12pt; }
             .print-card { page-break-inside: avoid; }
-        }
     </style>
 </head>
 <body class="h-full text-slate-800 flex flex-col bg-slate-50">
+
+    <!-- Loading Indicator Overlay -->
+    <div id="loading-overlay" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex flex-col items-center justify-center text-white hidden">
+        <div class="w-12 h-12 border-4 border-indigo-400 border-t-transparent rounded-full animate-spin mb-3"></div>
+        <p id="loading-text" class="text-sm font-semibold tracking-wide">Menyimpan Ke Google Sheets...</p>
+    </div>
 
     <!-- APP CONTAINER -->
     <div id="app" class="min-h-screen flex flex-col">
@@ -268,6 +273,10 @@
                                 <button onclick="exportDashboardPDF()" class="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg shadow transition flex items-center space-x-2">
                                     <i class="fa-solid fa-file-pdf"></i>
                                     <span>Export PDF Ringkasan</span>
+                                </button>
+                                <button onclick="syncAllDataFromGas()" class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow transition flex items-center space-x-2">
+                                    <i class="fa-solid fa-rotate"></i>
+                                    <span>Sync Sheets</span>
                                 </button>
                             </div>
                         </div>
@@ -651,6 +660,44 @@
         </div>
     </div>
 
+    <!-- Modal Form Result Scan QR -->
+    <div id="modal-scan-result" class="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-md flex items-center justify-center hidden p-4">
+        <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 text-center relative overflow-hidden">
+            <div id="scan-result-header-bg" class="absolute top-0 left-0 right-0 h-3 bg-emerald-500"></div>
+            
+            <div id="scan-result-icon-box" class="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto text-3xl mb-4 mt-2">
+                <i id="scan-result-icon" class="fa-solid fa-circle-check"></i>
+            </div>
+
+            <h3 id="scan-result-title" class="text-lg font-bold text-slate-800">Presensi Berhasil!</h3>
+            <p id="scan-result-status-badge" class="inline-block px-3 py-1 text-xs font-bold rounded-full bg-emerald-100 text-emerald-700 mt-1 mb-4">HADIR - TEPAT WAKTU</p>
+
+            <div class="bg-slate-50 p-4 rounded-xl border border-slate-100 text-left space-y-2 text-xs mb-6">
+                <div class="flex justify-between border-b pb-1.5">
+                    <span class="text-slate-400">Nama Siswa</span>
+                    <span id="scan-res-nama" class="font-bold text-slate-800">---</span>
+                </div>
+                <div class="flex justify-between border-b pb-1.5">
+                    <span class="text-slate-400">NIS</span>
+                    <span id="scan-res-nis" class="font-mono font-semibold text-slate-700">---</span>
+                </div>
+                <div class="flex justify-between border-b pb-1.5">
+                    <span class="text-slate-400">Kelas</span>
+                    <span id="scan-res-kelas" class="font-semibold text-slate-700">---</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Waktu Scan</span>
+                    <span id="scan-res-waktu" class="font-mono text-slate-700">---</span>
+                </div>
+            </div>
+
+            <button onclick="resumeScanner()" class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-500/30 transition flex items-center justify-center space-x-2">
+                <i class="fa-solid fa-play"></i>
+                <span>Lanjutkan Scan Berikutnya</span>
+            </button>
+        </div>
+    </div>
+
     <!-- ==================== MODALS ==================== -->
 
     <!-- Modal Form Siswa -->
@@ -793,9 +840,9 @@
                         <button onclick="copyGasScript()" class="text-indigo-600 hover:underline font-semibold text-[11px]"><i class="fa-solid fa-copy mr-1"></i> Salin Script</button>
                     </div>
                     <pre id="gas-code-block" class="bg-slate-900 text-emerald-400 p-4 rounded-xl text-[11px] font-mono overflow-x-auto max-h-48 select-all">
-// ==========================================
-// BACKEND GOOGLE APPS SCRIPT (INFORMATIKA QR)
-// ==========================================
+// ========================================================
+// BACKEND GOOGLE APPS SCRIPT - ABSENSI INFORMATIKA REALTIME
+// ========================================================
 
 function doGet(e) {
   var action = e.parameter.action;
@@ -804,14 +851,21 @@ function doGet(e) {
   if (action == "getSiswa") {
     var sheet = ss.getSheetByName("Siswa") || setupSheets();
     var data = sheet.getDataRange().getValues();
-    var headers = data.shift();
-    return responseJSON(data);
+    data.shift(); // Remove headers
+    var result = data.map(function(r) {
+      return { id: String(r[0]), nis: String(r[0]), nama: r[1], kelas: r[2], gender: r[3] };
+    });
+    return responseJSON(result);
   }
   
   if (action == "getAbsensi") {
     var sheet = ss.getSheetByName("Absensi") || setupSheets();
     var data = sheet.getDataRange().getValues();
-    return responseJSON(data);
+    data.shift(); // Remove headers
+    var result = data.map(function(r) {
+      return { id: String(r[0]), timestamp: r[0], nis: String(r[1]), nama: r[2], kelas: r[3], status: r[4], catatan: r[5] };
+    });
+    return responseJSON(result);
   }
   
   return responseJSON({status: "online", app: "Informatika QR Backend"});
@@ -824,9 +878,9 @@ function doPost(e) {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     
     if (action == "saveAbsensi") {
-      var sheet = ss.getSheetByName("Absensi");
+      var sheet = ss.getSheetByName("Absensi") || setupSheets();
       sheet.appendRow([
-        new Date().toISOString(),
+        contents.timestamp || new Date().toISOString(),
         contents.nis,
         contents.nama,
         contents.kelas,
@@ -835,6 +889,48 @@ function doPost(e) {
       ]);
       return responseJSON({success: true, message: "Absensi disimpan"});
     }
+    
+    if (action == "addSiswa") {
+      var sheet = ss.getSheetByName("Siswa") || setupSheets();
+      sheet.appendRow([contents.nis, contents.nama, contents.kelas, contents.gender]);
+      return responseJSON({success: true, message: "Siswa ditambahkan"});
+    }
+
+    if (action == "updateSiswa") {
+      var sheet = ss.getSheetByName("Siswa");
+      var data = sheet.getDataRange().getValues();
+      for (var i = 1; i < data.length; i++) {
+        if (String(data[i][0]) === String(contents.nis)) {
+          sheet.getRange(i + 1, 2).setValue(contents.nama);
+          sheet.getRange(i + 1, 3).setValue(contents.kelas);
+          sheet.getRange(i + 1, 4).setValue(contents.gender);
+          break;
+        }
+      }
+      return responseJSON({success: true, message: "Siswa diperbarui"});
+    }
+
+    if (action == "deleteSiswa") {
+      var sheet = ss.getSheetByName("Siswa");
+      var data = sheet.getDataRange().getValues();
+      for (var i = 1; i < data.length; i++) {
+        if (String(data[i][0]) === String(contents.nis)) {
+          sheet.deleteRow(i + 1);
+          break;
+        }
+      }
+      return responseJSON({success: true, message: "Siswa dihapus"});
+    }
+
+    if (action == "importSiswaExcel") {
+      var sheet = ss.getSheetByName("Siswa") || setupSheets();
+      var list = contents.siswaList || [];
+      list.forEach(function(s) {
+        sheet.appendRow([s.nis, s.nama, s.kelas, s.gender]);
+      });
+      return responseJSON({success: true, message: list.length + " Siswa diimpor"});
+    }
+
   } catch(err) {
     return responseJSON({error: err.toString()});
   }
@@ -900,6 +996,56 @@ function setupSheets() {
 
         let html5QrCode = null;
         let chartInstance = null;
+        let audioCtx = null;
+
+        // UI Loading Spinner Helper
+        function showLoading(msg = "Memproses Ke Google Sheets...") {
+            document.getElementById('loading-text').innerText = msg;
+            document.getElementById('loading-overlay').classList.remove('hidden');
+        }
+
+        function hideLoading() {
+            document.getElementById('loading-overlay').classList.add('hidden');
+        }
+
+        // Web Audio API Synthesizer for Audio Beep
+        function playBeep(type = 'success') {
+            try {
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                }
+
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+
+                if (type === 'success') {
+                    // High Pitch Double Beep
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
+                    osc.frequency.setValueAtTime(1200, audioCtx.currentTime + 0.1);
+                    gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.25);
+                    osc.start(audioCtx.currentTime);
+                    osc.stop(audioCtx.currentTime + 0.25);
+                } else {
+                    // Low Buzz Error Beep
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(220, audioCtx.currentTime); // A3
+                    gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+                    osc.start(audioCtx.currentTime);
+                    osc.stop(audioCtx.currentTime + 0.4);
+                }
+            } catch(e) {
+                console.log('Audio Context Error:', e);
+            }
+        }
 
         // Save data to localStorage wrapper
         function saveStorage() {
@@ -1097,7 +1243,7 @@ function setupSheets() {
             });
         }
 
-        // --- QR SCANNER LOGIC ---
+        // --- QR SCANNER LOGIC (PAUSE & RESUME PREVENT DUPLICATE) ---
         function startScanner() {
             document.getElementById('qr-reader-placeholder').classList.add('hidden');
             document.getElementById('scan-status-badge').innerText = 'Kamera Aktif';
@@ -1133,7 +1279,23 @@ function setupSheets() {
         }
 
         function handleQRScanned(nis) {
+            // PAUSE SCANNER IMMEDIATELY TO PREVENT DUPLICATE SCAN
+            if (html5QrCode && html5QrCode.isScanning) {
+                html5QrCode.pause(true);
+            }
             recordAttendance(nis, 'Hadir', 'Scan QR Code');
+        }
+
+        function resumeScanner() {
+            document.getElementById('modal-scan-result').classList.add('hidden');
+            if (html5QrCode) {
+                try {
+                    html5QrCode.resume();
+                } catch(e) {
+                    console.log('Resume Error / Restarting:', e);
+                    startScanner();
+                }
+            }
         }
 
         function handleManualScan(e) {
@@ -1147,10 +1309,49 @@ function setupSheets() {
         function recordAttendance(nis, status, note) {
             const siswa = appData.siswa.find(s => s.nis === nis);
             if (!siswa) {
+                playBeep('error');
                 showToast(`NIS (${nis}) Tidak Ditemukan dalam database!`, 'error');
+                
+                // Show result error modal
+                document.getElementById('scan-result-header-bg').className = 'absolute top-0 left-0 right-0 h-3 bg-rose-500';
+                document.getElementById('scan-result-icon-box').className = 'w-16 h-16 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto text-3xl mb-4 mt-2';
+                document.getElementById('scan-result-icon').className = 'fa-solid fa-triangle-exclamation';
+                document.getElementById('scan-result-title').innerText = 'Siswa Tidak Ditemukan!';
+                document.getElementById('scan-result-status-badge').className = 'inline-block px-3 py-1 text-xs font-bold rounded-full bg-rose-100 text-rose-700 mt-1 mb-4';
+                document.getElementById('scan-result-status-badge').innerText = 'GAGAL / INVALID NIS';
+                document.getElementById('scan-res-nama').innerText = '---';
+                document.getElementById('scan-res-nis').innerText = nis;
+                document.getElementById('scan-res-kelas').innerText = '---';
+                document.getElementById('scan-res-waktu').innerText = new Date().toLocaleTimeString('id-ID');
+                document.getElementById('modal-scan-result').classList.remove('hidden');
                 return;
             }
 
+            // Check if already scanned today
+            const todayStr = new Date().toDateString();
+            const alreadyScanned = appData.absensi.find(a => a.nis === nis && new Date(a.timestamp).toDateString() === todayStr);
+
+            if (alreadyScanned) {
+                playBeep('error');
+                showToast(`Siswa ${siswa.nama} Sudah Melakukan Presensi Hari Ini!`, 'info');
+                
+                // Show already scanned status modal
+                document.getElementById('scan-result-header-bg').className = 'absolute top-0 left-0 right-0 h-3 bg-amber-500';
+                document.getElementById('scan-result-icon-box').className = 'w-16 h-16 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto text-3xl mb-4 mt-2';
+                document.getElementById('scan-result-icon').className = 'fa-solid fa-clock-rotate-left';
+                document.getElementById('scan-result-title').innerText = 'Sudah Absen Hari Ini!';
+                document.getElementById('scan-result-status-badge').className = 'inline-block px-3 py-1 text-xs font-bold rounded-full bg-amber-100 text-amber-700 mt-1 mb-4';
+                document.getElementById('scan-result-status-badge').innerText = `STATUS: ${alreadyScanned.status.toUpperCase()}`;
+                document.getElementById('scan-res-nama').innerText = siswa.nama;
+                document.getElementById('scan-res-nis').innerText = siswa.nis;
+                document.getElementById('scan-res-kelas').innerText = siswa.kelas;
+                document.getElementById('scan-res-waktu').innerText = new Date(alreadyScanned.timestamp).toLocaleTimeString('id-ID');
+                document.getElementById('modal-scan-result').classList.remove('hidden');
+                return;
+            }
+
+            // Record attendance successfully
+            playBeep('success');
             const record = {
                 id: Date.now().toString(),
                 timestamp: new Date().toISOString(),
@@ -1170,16 +1371,29 @@ function setupSheets() {
             document.getElementById('scan-feedback-name').innerText = siswa.nama;
             document.getElementById('scan-feedback-info').innerText = `NIS: ${siswa.nis} | Kelas: ${siswa.kelas} | Status: ${status}`;
 
+            // Show Result Modal Dialog
+            document.getElementById('scan-result-header-bg').className = 'absolute top-0 left-0 right-0 h-3 bg-emerald-500';
+            document.getElementById('scan-result-icon-box').className = 'w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto text-3xl mb-4 mt-2';
+            document.getElementById('scan-result-icon').className = 'fa-solid fa-circle-check';
+            document.getElementById('scan-result-title').innerText = 'Presensi Berhasil!';
+            document.getElementById('scan-result-status-badge').className = 'inline-block px-3 py-1 text-xs font-bold rounded-full bg-emerald-100 text-emerald-700 mt-1 mb-4';
+            document.getElementById('scan-result-status-badge').innerText = `${status.toUpperCase()} - PRESENSI TERCATAT`;
+            document.getElementById('scan-res-nama').innerText = siswa.nama;
+            document.getElementById('scan-res-nis').innerText = siswa.nis;
+            document.getElementById('scan-res-kelas').innerText = siswa.kelas;
+            document.getElementById('scan-res-waktu').innerText = new Date().toLocaleTimeString('id-ID');
+            document.getElementById('modal-scan-result').classList.remove('hidden');
+
             showToast(`Absensi Berhasil: ${siswa.nama} - ${status}`, 'success');
 
-            // Send to Apps Script if configured
+            // Send to Google Apps Script if configured
             if (appData.gasUrl) {
                 fetch(appData.gasUrl, {
                     method: 'POST',
                     mode: 'no-cors',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ action: 'saveAbsensi', ...record })
-                }).catch(err => console.error(err));
+                }).catch(err => console.error('GAS Error:', err));
             }
         }
 
@@ -1258,13 +1472,23 @@ function setupSheets() {
                 appData.absensi[index].status = status;
                 appData.absensi[index].catatan = catatan;
                 saveStorage();
+
+                if (appData.gasUrl) {
+                    fetch(appData.gasUrl, {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'saveAbsensi', ...appData.absensi[index] })
+                    });
+                }
+
                 showToast('Status presensi diperbarui', 'success');
                 closeModalAbsensi();
                 renderEditAbsensiTable();
             }
         }
 
-        // --- SISWA CRUD LOGIC ---
+        // --- SISWA CRUD LOGIC (SYNCED WITH GOOGLE SPREADSHEET) ---
         function renderSiswaTable() {
             const query = document.getElementById('siswa-search-input').value.toLowerCase();
             const tbody = document.getElementById('siswa-tbody');
@@ -1286,7 +1510,7 @@ function setupSheets() {
                         <td class="p-3.5">${s.gender === 'L' ? 'Laki-laki' : 'Perempuan'}</td>
                         <td class="p-3.5 text-center space-x-2">
                             <button onclick="editSiswa('${s.id}')" class="text-indigo-600 hover:text-indigo-800"><i class="fa-solid fa-pen"></i></button>
-                            <button onclick="deleteSiswa('${s.id}')" class="text-rose-600 hover:text-rose-800"><i class="fa-solid fa-trash"></i></button>
+                            <button onclick="deleteSiswa('${s.id}', '${s.nis}')" class="text-rose-600 hover:text-rose-800"><i class="fa-solid fa-trash"></i></button>
                         </td>
                     </tr>
                 `;
@@ -1318,15 +1542,21 @@ function setupSheets() {
             document.getElementById('modal-siswa').classList.remove('hidden');
         }
 
-        function saveSiswa(e) {
+        async function saveSiswa(e) {
             e.preventDefault();
             const id = document.getElementById('siswa-edit-id').value;
-            const nis = document.getElementById('siswa-nis').value;
-            const nama = document.getElementById('siswa-nama').value;
-            const kelas = document.getElementById('siswa-kelas').value;
+            const nis = document.getElementById('siswa-nis').value.trim();
+            const nama = document.getElementById('siswa-nama').value.trim();
+            const kelas = document.getElementById('siswa-kelas').value.trim();
             const gender = document.getElementById('siswa-gender').value;
 
-            if (id) {
+            const isEdit = Boolean(id);
+            const payload = {
+                action: isEdit ? 'updateSiswa' : 'addSiswa',
+                nis, nama, kelas, gender
+            };
+
+            if (isEdit) {
                 const idx = appData.siswa.findIndex(x => x.id === id);
                 if (idx !== -1) {
                     appData.siswa[idx] = { id, nis, nama, kelas, gender };
@@ -1338,49 +1568,144 @@ function setupSheets() {
             saveStorage();
             closeModalSiswa();
             renderSiswaTable();
-            showToast('Data siswa tersimpan', 'success');
-        }
 
-        function deleteSiswa(id) {
-            if (confirm('Hapus siswa ini dari database?')) {
-                appData.siswa = appData.siswa.filter(s => s.id !== id);
-                saveStorage();
-                renderSiswaTable();
-                showToast('Siswa dihapus', 'info');
+            // Direct Sync POST to Google Apps Script
+            if (appData.gasUrl) {
+                showLoading("Menyimpan Siswa ke Google Spreadsheet...");
+                try {
+                    await fetch(appData.gasUrl, {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    showToast('Data siswa berhasil disinkronkan ke Google Sheets!', 'success');
+                } catch(err) {
+                    console.error('Spreadsheet Sync Error:', err);
+                    showToast('Tersimpan di lokal, gagal kirim ke Google Sheets', 'info');
+                } finally {
+                    hideLoading();
+                }
+            } else {
+                showToast('Data siswa tersimpan secara lokal', 'success');
             }
         }
 
-        // Excel Import
+        async function deleteSiswa(id, nis) {
+            if (confirm(`Hapus siswa NIS ${nis} dari database?`)) {
+                appData.siswa = appData.siswa.filter(s => s.id !== id);
+                saveStorage();
+                renderSiswaTable();
+
+                if (appData.gasUrl) {
+                    showLoading("Menghapus dari Google Spreadsheet...");
+                    try {
+                        await fetch(appData.gasUrl, {
+                            method: 'POST',
+                            mode: 'no-cors',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ action: 'deleteSiswa', nis })
+                        });
+                        showToast('Siswa dihapus dari Google Sheets!', 'info');
+                    } catch(err) {
+                        console.error('Delete Error:', err);
+                    } finally {
+                        hideLoading();
+                    }
+                } else {
+                    showToast('Siswa dihapus dari lokal', 'info');
+                }
+            }
+        }
+
+        // Excel Import Synced to Google Sheets
         function handleImportExcel(e) {
             const file = e.target.files[0];
             if (!file) return;
 
             const reader = new FileReader();
-            reader.onload = function(evt) {
+            reader.onload = async function(evt) {
                 const data = new Uint8Array(evt.target.result);
                 const workbook = XLSX.read(data, { type: 'array' });
                 const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
                 const jsonData = XLSX.utils.sheet_to_json(firstSheet);
 
-                let importedCount = 0;
+                let newSiswaList = [];
                 jsonData.forEach(row => {
                     if (row.NIS && row.Nama) {
-                        appData.siswa.push({
+                        const item = {
                             id: Date.now().toString() + Math.random(),
                             nis: String(row.NIS),
                             nama: String(row.Nama),
                             kelas: row.Kelas || 'VII-A',
                             gender: row.Gender || 'L'
-                        });
-                        importedCount++;
+                        };
+                        appData.siswa.push(item);
+                        newSiswaList.push({ nis: item.nis, nama: item.nama, kelas: item.kelas, gender: item.gender });
                     }
                 });
 
                 saveStorage();
                 renderSiswaTable();
-                showToast(`Berhasil mengimpor ${importedCount} data siswa!`, 'success');
+
+                if (appData.gasUrl && newSiswaList.length > 0) {
+                    showLoading("Mengimpor data ke Google Sheets...");
+                    try {
+                        await fetch(appData.gasUrl, {
+                            method: 'POST',
+                            mode: 'no-cors',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ action: 'importSiswaExcel', siswaList: newSiswaList })
+                        });
+                        showToast(`Berhasil mengimpor & menyinkronkan ${newSiswaList.length} siswa ke Google Sheets!`, 'success');
+                    } catch(err) {
+                        console.error('Import Sync Error:', err);
+                    } finally {
+                        hideLoading();
+                    }
+                } else {
+                    showToast(`Berhasil mengimpor ${newSiswaList.length} data siswa secara lokal!`, 'success');
+                }
             };
             reader.readAsArrayBuffer(file);
+        }
+
+        // Sync Data From Google Apps Script GET
+        async function syncAllDataFromGas() {
+            if (!appData.gasUrl) {
+                openConfigModal();
+                showToast('Masukkan URL Apps Script terlebih dahulu!', 'info');
+                return;
+            }
+
+            showLoading("Mengambil data dari Google Spreadsheet...");
+            try {
+                const resSiswa = await fetch(`${appData.gasUrl}?action=getSiswa`);
+                if (resSiswa.ok) {
+                    const dataSiswa = await resSiswa.json();
+                    if (Array.isArray(dataSiswa) && dataSiswa.length > 0) {
+                        appData.siswa = dataSiswa;
+                    }
+                }
+
+                const resAbsen = await fetch(`${appData.gasUrl}?action=getAbsensi`);
+                if (resAbsen.ok) {
+                    const dataAbsen = await resAbsen.json();
+                    if (Array.isArray(dataAbsen) && dataAbsen.length > 0) {
+                        appData.absensi = dataAbsen;
+                    }
+                }
+
+                saveStorage();
+                renderDashboard();
+                renderSiswaTable();
+                showToast('Berhasil menyinkronkan data dari Google Sheets!', 'success');
+            } catch(err) {
+                console.error(err);
+                showToast('Gagal menarik data dari Google Sheets (Pastikan CORS/Akses Anyone aktif)', 'error');
+            } finally {
+                hideLoading();
+            }
         }
 
         // --- QR CODE GENERATOR GRID ---
